@@ -268,7 +268,7 @@ K8S_VERSION="1.33"
 
 # Step 4 - Deploy to Kubernetes Using kubectl
 
-In this step you will update the Kubernetes manifests to reference your ACR images, change the frontend service type so it gets a public IP, and apply everything to the cluster using `kubectl`.
+In this step you will update the Kubernetes manifests to reference your ACR images and apply everything to the cluster using `kubectl`. Both services use `ClusterIP` and are exposed externally through an Ingress.
 
 ## Concept/Pattern 1 - Declarative Configuration
 
@@ -278,9 +278,9 @@ This is necessary because Kubernetes is a *declarative* system — you describe 
 
 This is important because `IfNotPresent` (the default in the manifests) tells Kubernetes "only pull the image if it is not already cached on the node." That is correct for local Docker Desktop development where you build images directly onto the node, but wrong for AKS where nodes start fresh and images must always be pulled from ACR. Setting `Always` ensures each new pod gets the exact image from the registry.
 
-## Concept/Pattern 3 - Service Types
+## Concept/Pattern 3 - Service Types and Ingress
 
-This is important because the manifest currently uses `NodePort`, which exposes the service on a static port of every node and is fine for local clusters. On AKS you want `LoadBalancer`, which provisions an Azure Load Balancer with a public IP so the app is reachable from the internet.
+This is important because `ClusterIP` (the default) makes a service reachable only within the cluster — no public IP is provisioned and no cloud load balancer is billed. A Kubernetes Ingress resource sits in front of one or more ClusterIP services and routes external HTTP/HTTPS traffic to them through a single Ingress controller. This is cheaper and more flexible than giving every service its own `LoadBalancer` IP.
 
 1. Open `resources/backend-deployment.yaml` and update the `image` and `imagePullPolicy` fields:
 
@@ -302,11 +302,11 @@ This is important because the manifest currently uses `NodePort`, which exposes 
         imagePullPolicy: Always
     ```
 
-3. Open `resources/frontend-service.yaml` and change the service type from `NodePort` to `LoadBalancer`, removing the `nodePort` line:
+3. Confirm `resources/frontend-service.yaml` uses `ClusterIP` (the default). Both services stay cluster-internal; the Ingress handles all external traffic:
 
     ```yaml
     spec:
-      type: LoadBalancer
+      type: ClusterIP
       selector:
         app: frontend
       ports:
@@ -314,7 +314,7 @@ This is important because the manifest currently uses `NodePort`, which exposes 
           targetPort: 80
     ```
 
-4. Apply all four manifests:
+4. Apply all five manifests:
 
     ```bash
     kubectl apply -f resources/
@@ -327,6 +327,7 @@ This is important because the manifest currently uses `NodePort`, which exposes 
     service/backend created
     deployment.apps/frontend created
     service/frontend created
+    ingress.networking.k8s.io/frontend created
     ```
 
 5. Watch the pods start up (press `Ctrl+C` to exit the watch):
@@ -337,20 +338,20 @@ This is important because the manifest currently uses `NodePort`, which exposes 
 
     Wait until both pods show `Running` and `READY 1/1`.
 
-6. Get the external IP assigned to the frontend service:
+6. Get the external IP assigned to the Ingress controller:
 
     ```bash
-    kubectl get service frontend
+    kubectl get ingress
     ```
 
-    Azure provisioning the load balancer takes 1–2 minutes. While it is pending you will see `<pending>` in the `EXTERNAL-IP` column. Run the command again until a real IP appears:
+    Azure provisioning the Ingress address takes 1–2 minutes. While it is pending you will see `<pending>` in the `ADDRESS` column. Run the command again until a real IP appears:
 
     ```
-    NAME       TYPE           CLUSTER-IP    EXTERNAL-IP      PORT(S)        AGE
-    frontend   LoadBalancer   10.0.73.210   20.84.XXX.XXX    80:30080/TCP   2m
+    NAME       CLASS   HOSTS   ADDRESS          PORTS   AGE
+    frontend   nginx   *       20.84.XXX.XXX    80      2m
     ```
 
-7. Open your browser and navigate to `http://<EXTERNAL-IP>`. The React frontend should load and display items fetched from the backend.
+7. Open your browser and navigate to `http://<ADDRESS>`. The React frontend should load and display items fetched from the backend.
 
 8. Inspect the full cluster state at a glance:
 

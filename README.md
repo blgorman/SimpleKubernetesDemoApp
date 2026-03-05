@@ -20,7 +20,8 @@ SimpleKubernetesDemoApp/
     ├── backend-deployment.yaml
     ├── backend-service.yaml
     ├── frontend-deployment.yaml
-    └── frontend-service.yaml
+    ├── frontend-service.yaml
+    └── ingress.yaml
 ```
 
 ## Prerequisites
@@ -81,13 +82,15 @@ kubectl get services
 
 ### 4. Access the app
 
-The frontend is exposed as a `NodePort` service on port `30080`.
+The frontend is exposed via the Azure Web App Routing ingress controller. Retrieve the external IP assigned to the ingress:
 
-| Service  | URL                       |
-|----------|---------------------------|
-| Frontend | http://localhost:30080    |
+```bash
+kubectl get ingress
+```
 
-> **Docker Desktop users:** The cluster runs on `localhost`. For other distributions (minikube, kind) use the node IP from `kubectl get nodes -o wide` instead.
+| Service  | URL                                        |
+|----------|--------------------------------------------|
+| Frontend | http://\<EXTERNAL-IP\> (from ingress above) |
 
 ### Tearing down
 
@@ -156,10 +159,9 @@ This means the same frontend build works in both environments without any enviro
 
 2. Update the `image:` field in `resources/backend-deployment.yaml` and `resources/frontend-deployment.yaml` to point to your registry.
 
-3. Change the frontend service type from `NodePort` to `LoadBalancer` (or add an Ingress) for external access:
-   ```yaml
-   spec:
-     type: LoadBalancer
+3. Ensure the AKS cluster has the **Web App Routing** add-on enabled (required for the ingress to function):
+   ```bash
+   az aks addon enable --resource-group <rg> --name <cluster> --addon web_application_routing
    ```
 
 4. Apply to your AKS cluster:
@@ -167,6 +169,8 @@ This means the same frontend build works in both environments without any enviro
    az aks get-credentials --resource-group <rg> --name <cluster>
    kubectl apply -f resources/
    ```
+
+> **Want a step-by-step walkthrough?** A full tutorial covering local development through AKS deployment is available in [Tutorial.md](Tutorial.md).
 
 ---
 
