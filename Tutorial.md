@@ -2,19 +2,7 @@
 
 This tutorial walks you step-by-step from running the app locally all the way to a production-ready Kubernetes deployment on Azure Kubernetes Service with auto-scaling.
 
-## Variables used throughout this tutorial
-
-Define these once in your terminal session so every command below works without substitution:
-
-```powershell
-$ACR_NAME    = "simplekubedemo"       # Must be globally unique, 5-50 chars, lowercase alphanumeric only
-$RG          = "rg-simplekubedemo"
-$LOCATION    = "eastus"
-$CLUSTER     = "aks-simplekubedemo"
-$K8S_VERSION = "1.29"
-```
-
-> **Tip:** ACR names become the subdomain of your login server (`<ACR_NAME>.azurecr.io`). If the name is taken, append a short random suffix — e.g. `simplekubedemo42`.
+> **Shell choice:** Every command is shown for both **PowerShell** and **bash**. When the syntax is identical in both shells the command appears once in a plain code block. Otherwise a **PowerShell** block is followed immediately by a **bash** block.
 
 ---
 
@@ -71,20 +59,39 @@ This is necessary because Kubernetes needs to pull images from *somewhere* at de
 
 This is important because a Docker image tag is how both humans and Kubernetes identify a specific version of a container. Using `latest` is convenient during development but ambiguous in production — a tag like `v1.0.0` or a Git commit SHA makes deployments reproducible and rollbacks deterministic.
 
+Before running any commands in this step, define the variables that will be used throughout Steps 2 and 3:
+
+**PowerShell**
+```powershell
+$ACR_NAME = "simplekubedemo"       # Must be globally unique, 5-50 chars, lowercase alphanumeric only
+$RG       = "rg-simplekubedemo"
+$LOCATION = "eastus"
+```
+
+**bash**
+```bash
+ACR_NAME="simplekubedemo"       # Must be globally unique, 5-50 chars, lowercase alphanumeric only
+RG="rg-simplekubedemo"
+LOCATION="eastus"
+```
+
+> **Tip:** ACR names become the subdomain of your login server (`<ACR_NAME>.azurecr.io`). If the name is taken, append a short random suffix — e.g. `simplekubedemo42`.
+
 1. Log in to Azure (skip if already logged in):
 
-    ```powershell
+    ```bash
     az login
     ```
 
 2. Create a resource group:
 
-    ```powershell
+    ```bash
     az group create --name $RG --location $LOCATION
     ```
 
 3. Create the Azure Container Registry with the Basic SKU (sufficient for learning):
 
+    **PowerShell**
     ```powershell
     az acr create `
       --resource-group $RG `
@@ -93,45 +100,83 @@ This is important because a Docker image tag is how both humans and Kubernetes i
       --admin-enabled false
     ```
 
+    **bash**
+    ```bash
+    az acr create \
+      --resource-group $RG \
+      --name $ACR_NAME \
+      --sku Basic \
+      --admin-enabled false
+    ```
+
     > The `--admin-enabled false` flag keeps authentication managed-identity based. The AKS cluster will be granted pull access via RBAC in Step 3, so you will never need the admin password.
 
 4. Log in to the registry so Docker can push to it:
 
-    ```powershell
+    ```bash
     az acr login --name $ACR_NAME
     ```
 
-5. Build and tag both images pointing at your ACR login server. Run these from the repository root:
+5. Build the backend image:
 
-    ```powershell
-    # Backend
+    ```bash
     docker build -t "$ACR_NAME.azurecr.io/simple-kube-demo-backend:v1.0.0" ./backend
+    ```
 
-    # Frontend
+    > **Note:** If you are on an ARM64 machine (e.g. Apple Silicon or a Windows ARM device), delegate the build to ACR Tasks so the image is built for `linux/amd64` in the cloud:
+    >
+    > ```bash
+    > az acr build --registry $ACR_NAME --image simple-kube-demo-backend:v1.0.0 ./backend
+    > ```
+    > This skips the local `docker build` and `docker push` steps — the image lands in the registry automatically.
+
+6. Build the frontend image:
+
+    ```bash
     docker build -t "$ACR_NAME.azurecr.io/simple-kube-demo-frontend:v1.0.0" ./frontend
     ```
 
-6. Push both images:
+    > **Note:** If you are on an ARM64 machine, use ACR Tasks for the frontend image as well:
+    >
+    > ```bash
+    > az acr build --registry $ACR_NAME --image simple-kube-demo-frontend:v1.0.0 ./frontend
+    > ```
 
-    ```powershell
+7. Push the backend image:
+
+    ```bash
     docker push "$ACR_NAME.azurecr.io/simple-kube-demo-backend:v1.0.0"
+    ```
+
+8. Push the frontend image:
+
+    ```bash
     docker push "$ACR_NAME.azurecr.io/simple-kube-demo-frontend:v1.0.0"
     ```
 
-7. Verify the images are in the registry:
+9. Verify both images are in the registry:
 
-    ```powershell
+    ```bash
     az acr repository list --name $ACR_NAME --output table
     ```
 
     You should see both `simple-kube-demo-backend` and `simple-kube-demo-frontend` listed.
 
-    To inspect the available tags on a repository:
+10. Inspect the available tags on the backend repository:
 
+    **PowerShell**
     ```powershell
     az acr repository show-tags `
       --name $ACR_NAME `
       --repository simple-kube-demo-backend `
+      --output table
+    ```
+
+    **bash**
+    ```bash
+    az acr repository show-tags \
+      --name $ACR_NAME \
+      --repository simple-kube-demo-backend \
       --output table
     ```
 
@@ -149,8 +194,23 @@ This is necessary because pods in AKS must authenticate to ACR to pull images at
 
 This is important because the VM size of your node pool determines available CPU and memory for all pods. For this demo, a single `Standard_D2s_v3` node (2 vCPU, 8 GB RAM) is plenty. In Step 5 and Step 6 you will scale the cluster, so keep at least 1 extra node worth of headroom in mind.
 
+Define the remaining variables needed for cluster provisioning:
+
+**PowerShell**
+```powershell
+$CLUSTER     = "aks-simplekubedemo"
+$K8S_VERSION = "1.33"
+```
+
+**bash**
+```bash
+CLUSTER="aks-simplekubedemo"
+K8S_VERSION="1.33"
+```
+
 1. Create the AKS cluster. This typically takes 3–5 minutes:
 
+    **PowerShell**
     ```powershell
     az aks create `
       --resource-group $RG `
@@ -163,17 +223,30 @@ This is important because the VM size of your node pool determines available CPU
       --generate-ssh-keys
     ```
 
+    **bash**
+    ```bash
+    az aks create \
+      --resource-group $RG \
+      --name $CLUSTER \
+      --kubernetes-version $K8S_VERSION \
+      --node-count 2 \
+      --node-vm-size Standard_D2s_v3 \
+      --attach-acr $ACR_NAME \
+      --enable-managed-identity \
+      --generate-ssh-keys
+    ```
+
     > `--node-count 2` gives you two worker nodes, which is the minimum recommended for demonstrating scheduling behavior and pod distribution across nodes.
 
 2. Download the cluster credentials and merge them into your local kubeconfig:
 
-    ```powershell
+    ```bash
     az aks get-credentials --resource-group $RG --name $CLUSTER
     ```
 
 3. Confirm kubectl is talking to the right cluster and the nodes are `Ready`:
 
-    ```powershell
+    ```bash
     kubectl get nodes
     ```
 
@@ -181,13 +254,13 @@ This is important because the VM size of your node pool determines available CPU
 
     ```
     NAME                                STATUS   ROLES   AGE     VERSION
-    aks-nodepool1-XXXXXXXX-vmss000000   Ready    agent   2m      v1.29.x
-    aks-nodepool1-XXXXXXXX-vmss000001   Ready    agent   2m      v1.29.x
+    aks-nodepool1-XXXXXXXX-vmss000000   Ready    agent   2m      v1.33.x
+    aks-nodepool1-XXXXXXXX-vmss000001   Ready    agent   2m      v1.33.x
     ```
 
 4. Check what context kubectl is currently using if you work with multiple clusters:
 
-    ```powershell
+    ```bash
     kubectl config current-context
     ```
 
@@ -241,9 +314,9 @@ This is important because the manifest currently uses `NodePort`, which exposes 
           targetPort: 80
     ```
 
-4. Apply all four manifests at once:
+4. Apply all four manifests:
 
-    ```powershell
+    ```bash
     kubectl apply -f resources/
     ```
 
@@ -258,7 +331,7 @@ This is important because the manifest currently uses `NodePort`, which exposes 
 
 5. Watch the pods start up (press `Ctrl+C` to exit the watch):
 
-    ```powershell
+    ```bash
     kubectl get pods --watch
     ```
 
@@ -266,7 +339,7 @@ This is important because the manifest currently uses `NodePort`, which exposes 
 
 6. Get the external IP assigned to the frontend service:
 
-    ```powershell
+    ```bash
     kubectl get service frontend
     ```
 
@@ -281,21 +354,31 @@ This is important because the manifest currently uses `NodePort`, which exposes 
 
 8. Inspect the full cluster state at a glance:
 
-    ```powershell
+    ```bash
     kubectl get all
     ```
 
-9. View logs from a running pod (substitute the actual pod name from `kubectl get pods`):
+9. List running pods to get their names:
 
-    ```powershell
+    ```bash
     kubectl get pods
+    ```
+
+10. View logs from the backend pod (substitute the actual pod name from the previous step):
+
+    ```bash
     kubectl logs <backend-pod-name>
+    ```
+
+11. View logs from the frontend pod:
+
+    ```bash
     kubectl logs <frontend-pod-name>
     ```
 
-10. Describe a pod for detailed event and scheduling information — useful for debugging:
+12. Describe a pod for detailed event and scheduling information — useful for debugging:
 
-    ```powershell
+    ```bash
     kubectl describe pod <backend-pod-name>
     ```
 
@@ -317,13 +400,13 @@ This is important because `kubectl scale` is *imperative* — it makes an immedi
 
 1. Scale the backend deployment to 3 replicas imperatively:
 
-    ```powershell
+    ```bash
     kubectl scale deployment backend --replicas=3
     ```
 
 2. Watch the new pods come online:
 
-    ```powershell
+    ```bash
     kubectl get pods --watch
     ```
 
@@ -331,7 +414,7 @@ This is important because `kubectl scale` is *imperative* — it makes an immedi
 
 3. Verify which nodes the pods landed on — the scheduler distributes them across available nodes:
 
-    ```powershell
+    ```bash
     kubectl get pods -o wide
     ```
 
@@ -346,7 +429,7 @@ This is important because `kubectl scale` is *imperative* — it makes an immedi
 
 5. Re-apply the manifest so the file and the cluster are in sync:
 
-    ```powershell
+    ```bash
     kubectl apply -f resources/backend-deployment.yaml
     ```
 
@@ -356,6 +439,7 @@ This is important because `kubectl scale` is *imperative* — it makes an immedi
 
 6. Scale the underlying AKS node pool from 2 to 3 nodes when you need more physical capacity:
 
+    **PowerShell**
     ```powershell
     az aks scale `
       --resource-group $RG `
@@ -364,19 +448,38 @@ This is important because `kubectl scale` is *imperative* — it makes an immedi
       --nodepool-name nodepool1
     ```
 
+    **bash**
+    ```bash
+    az aks scale \
+      --resource-group $RG \
+      --name $CLUSTER \
+      --node-count 3 \
+      --nodepool-name nodepool1
+    ```
+
 7. Confirm the new node is ready:
 
-    ```powershell
+    ```bash
     kubectl get nodes
     ```
 
 8. Scale back down to 2 nodes when you are done (AKS will safely reschedule any pods that were on the removed node):
 
+    **PowerShell**
     ```powershell
     az aks scale `
       --resource-group $RG `
       --name $CLUSTER `
       --node-count 2 `
+      --nodepool-name nodepool1
+    ```
+
+    **bash**
+    ```bash
+    az aks scale \
+      --resource-group $RG \
+      --name $CLUSTER \
+      --node-count 2 \
       --nodepool-name nodepool1
     ```
 
@@ -400,17 +503,17 @@ This is necessary because the HPA consumes metrics from the Kubernetes Metrics S
 
 1. Verify the Metrics Server is running on your cluster:
 
-    ```powershell
+    ```bash
     kubectl get deployment metrics-server -n kube-system
     ```
 
-    If it is not present, install it:
+2. If the Metrics Server is not present, install it:
 
-    ```powershell
+    ```bash
     kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
     ```
 
-2. Add CPU resource requests and limits to `resources/backend-deployment.yaml` so the HPA has a baseline to work from:
+3. Add CPU resource requests and limits to `resources/backend-deployment.yaml` so the HPA has a baseline to work from:
 
     ```yaml
     containers:
@@ -430,14 +533,15 @@ This is necessary because the HPA consumes metrics from the Kubernetes Metrics S
 
     > CPU values use the millicores unit: `100m` = 0.1 of one vCPU core.
 
-3. Apply the updated manifest to the cluster:
+4. Apply the updated manifest to the cluster:
 
-    ```powershell
+    ```bash
     kubectl apply -f resources/backend-deployment.yaml
     ```
 
-4. Create an HPA for the backend that targets 50% average CPU utilization, with a minimum of 1 replica and a maximum of 5:
+5. Create an HPA for the backend that targets 50% average CPU utilization, with a minimum of 1 replica and a maximum of 5:
 
+    **PowerShell**
     ```powershell
     kubectl autoscale deployment backend `
       --cpu-percent=50 `
@@ -445,40 +549,64 @@ This is necessary because the HPA consumes metrics from the Kubernetes Metrics S
       --max=5
     ```
 
-5. Inspect the HPA. The `TARGETS` column shows `<current>/<desired>%`:
+    **bash**
+    ```bash
+    kubectl autoscale deployment backend \
+      --cpu-percent=50 \
+      --min=1 \
+      --max=5
+    ```
 
-    ```powershell
+6. Inspect the HPA. The `TARGETS` column shows `<current>/<desired>%`:
+
+    ```bash
     kubectl get hpa
     ```
 
     After a minute or two (once the Metrics Server collects data) `TARGETS` will show a real CPU percentage instead of `<unknown>`.
 
-6. Simulate load against the backend to trigger a scale-out (run this in a separate terminal tab):
+7. In a separate terminal tab, retrieve the backend cluster IP for load testing:
 
+    **PowerShell**
     ```powershell
-    # Runs 200 concurrent requests in a tight loop for 60 seconds
-    # Requires 'hey' load generator: https://github.com/rakyll/hey
-    # Install with: go install github.com/rakyll/hey@latest
     $BACKEND_IP = kubectl get service backend -o jsonpath='{.spec.clusterIP}'
+    ```
+
+    **bash**
+    ```bash
+    BACKEND_IP=$(kubectl get service backend -o jsonpath='{.spec.clusterIP}')
+    ```
+
+8. Run the load generator against the backend to trigger a scale-out:
+
+    ```bash
     hey -z 60s -c 50 "http://$BACKEND_IP:8080/items"
     ```
 
-    If you do not have `hey`, use any load generator you prefer (e.g. `k6`, `wrk`, PowerShell `Invoke-WebRequest` in a loop).
+    > `hey` runs 50 concurrent requests for 60 seconds. Install it with `go install github.com/rakyll/hey@latest`. If you do not have `hey`, use any load generator you prefer (e.g. `k6`, `wrk`, or a loop of `curl` commands).
 
-7. In your primary terminal, watch the HPA and pods react to load:
+9. In your primary terminal, watch the HPA and pods react to load:
 
-    ```powershell
+    ```bash
     kubectl get hpa --watch
     ```
 
     You should see the `REPLICAS` count climb toward the maximum as CPU rises above 50%, then slowly decrease after load stops (the default scale-in stabilization window is 5 minutes).
 
-8. To make the HPA configuration part of your repository rather than an imperative command, save it as a manifest:
+10. Save the HPA configuration as a manifest for source control:
 
+    **PowerShell**
     ```powershell
     kubectl get hpa backend -o yaml | `
       Select-String -NotMatch "resourceVersion|uid|creationTimestamp|generation|status" | `
       Out-File resources/backend-hpa.yaml
+    ```
+
+    **bash**
+    ```bash
+    kubectl get hpa backend -o yaml | \
+      grep -Ev "resourceVersion|uid|creationTimestamp|generation|status" \
+      > resources/backend-hpa.yaml
     ```
 
     Or write `resources/backend-hpa.yaml` by hand:
@@ -504,15 +632,15 @@ This is necessary because the HPA consumes metrics from the Kubernetes Metrics S
               averageUtilization: 50
     ```
 
-    Apply it:
+11. Apply the HPA manifest:
 
-    ```powershell
+    ```bash
     kubectl apply -f resources/backend-hpa.yaml
     ```
 
-9. Delete the HPA when you are done experimenting:
+12. Delete the HPA when you are done experimenting:
 
-    ```powershell
+    ```bash
     kubectl delete hpa backend
     ```
 
@@ -522,12 +650,16 @@ This is necessary because the HPA consumes metrics from the Kubernetes Metrics S
 
 When you are finished with the tutorial, clean up all Azure resources to avoid ongoing charges:
 
-```powershell
-# Delete just the Kubernetes workloads (keeps the cluster)
-kubectl delete -f resources/
+1. Delete just the Kubernetes workloads (keeps the cluster):
 
-# Delete the entire resource group — removes the AKS cluster, ACR, and all associated resources
-az group delete --name $RG --yes --no-wait
-```
+    ```bash
+    kubectl delete -f resources/
+    ```
+
+2. Delete the entire resource group — removes the AKS cluster, ACR, and all associated resources:
+
+    ```bash
+    az group delete --name $RG --yes --no-wait
+    ```
 
 > The `--no-wait` flag returns your terminal immediately while Azure deletes everything in the background. Deletion typically completes in 5–10 minutes.
