@@ -39,7 +39,7 @@ SimpleKubernetesDemoApp/
 This is the fastest way to get both services running locally. Docker handles all builds — no SDK or Node.js install required.
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
 | Service  | URL                          |
@@ -173,5 +173,7 @@ This means the same frontend build works in both environments without any enviro
 ## Authorship & License
 
 This project was entirely written by [Claude Code](https://claude.ai/code), Anthropic's AI coding assistant. No human authored any of the source code, configuration, or documentation.
+
+The [Tutorial.md](Tutorial.md) was authored by [GitHub Copilot](https://github.com/features/copilot) (Claude Sonnet 4.6).
 
 This software is provided under the MIT License (see [LICENSE](LICENSE)). As stated there, the software is provided **"as is", without warranty of any kind**, express or implied — including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement. The authors and copyright holders accept no liability for any claim, damages, or other liability arising from the use or misuse of this code. You are free to use, copy, modify, merge, publish, distribute, sublicense, or sell this software without restriction.
